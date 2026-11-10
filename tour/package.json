@@ -1,0 +1,7 @@
+{
+  "name": "action-receipts-tour",
+  "private": true,
+  "type": "module",
+  "scripts": { "tour": "node tour.ts" },
+  "dependencies": { "playwright": "^1.64.1" }
+}
