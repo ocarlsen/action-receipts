@@ -30,7 +30,7 @@ from receipts.seed import reset_core
 
 CASES = Path(__file__).resolve().parent.parent / "evals" / "cases.json"
 FROZEN = CASES.with_name("FROZEN")
-LOCK = 4242   # shared with canary.py: both reset the core
+LOCK = 4242   # shared with canary.py; coordinates only when both use the same database
 WRITE_PATHS = {"freeze_card": "/freeze", "pay_loan": "/payments", "transfer": "/transfers",
                "update_address": "/address"}
 
@@ -91,7 +91,7 @@ def run_case(conn, case: dict, model, core_client) -> dict:
 def run(conn, cases: list[dict], set_sha: str, model, core_client, judge_model=None) -> tuple[str, list[dict]]:
     run_id = uuid.uuid4()
     results = []
-    conn.execute("SELECT pg_advisory_lock(%s)", (LOCK,))   # the canary skips its tick while this runs
+    conn.execute("SELECT pg_advisory_lock(%s)", (LOCK,))   # a canary on this database skips its tick while this runs
     try:
         for case in cases:
             r = run_case(conn, case, model, core_client)

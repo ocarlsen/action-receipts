@@ -148,3 +148,15 @@ def test_claim_of_the_recorded_amount_is_released(conn):
 def test_claim_without_an_amount_matches_on_kind(conn):
     a = Agent(conn, TestClient(app), Scripted([VERIFY, TRANSFER_50, text("Done, I've transferred it to your savings.")]))
     assert a.send("Move $50 to savings. Membership 100005, phone 9264.").startswith("Done")
+
+
+def test_a_balance_after_the_claimed_amount_does_not_back_it(conn):
+    a = Agent(conn, TestClient(app), Scripted([VERIFY, TRANSFER_50,
+              text("Done, I've moved $5,000 to your savings; checking now shows $50.")]))
+    assert a.send("Move $50 to savings. Membership 100005, phone 9264.") == HANDOFF
+
+
+def test_a_bare_dollar_sign_is_not_an_amount():
+    from receipts.checker import claimed_cents
+    assert claimed_cents("in US$, the fee") is None
+    assert claimed_cents("moved $5,000.50 to savings") == 500050

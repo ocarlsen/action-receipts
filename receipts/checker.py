@@ -22,7 +22,7 @@ from decimal import Decimal
 
 from receipts.db import connect
 
-DOLLARS = re.compile(r"\$\s?([\d,]+(?:\.\d{1,2})?)")   # the one home of the dollar-amount pattern
+DOLLARS = re.compile(r"\$\s?(\d[\d,]*(?:\.\d{1,2})?)")   # the one home of the dollar-amount pattern
 CLAIMS = {
     "freeze_card": [r"\bcard\b.{0,40}\b(?:is|has been|was|now)\b.{0,15}\bfrozen\b",
                     r"\bI(?:'ve| have)?\s+frozen\b", r"\bfroze (?:your|the) card\b"],
@@ -58,15 +58,17 @@ def find_claims(text: str) -> list[tuple[str, str]]:
     return found
 
 
-def claimed_cents(claim: str | None) -> set[int]:
-    """Every dollar amount a claim states, in cents."""
-    return {int(Decimal(m.replace(",", "")) * 100) for m in DOLLARS.findall(claim or "")}
+def claimed_cents(claim: str | None) -> int | None:
+    """The first dollar amount a claim states, in cents (the amount acted on; a later one is
+    usually a balance); None when it states none."""
+    m = DOLLARS.search(claim or "")
+    return int(Decimal(m.group(1).replace(",", "")) * 100) if m else None
 
 
 def backing(conn, conversation_id, tool: str, at=None, claim: str | None = None):
     """The latest executed action of this kind in the conversation that the core recorded under its key
     (executed no later than `at`, when given); None when there is none. When the claim states a dollar
-    amount, the action must be for one of the amounts it states (tools with an amount_cents argument)."""
+    amount, the action must be for the first amount it states (tools with an amount_cents argument)."""
     rows = conn.execute(
         "SELECT a.action_id, a.args, o.response FROM app.action a"
         " JOIN app.action_event e ON e.action_id = a.action_id AND e.kind = 'executed'"
@@ -76,7 +78,7 @@ def backing(conn, conversation_id, tool: str, at=None, claim: str | None = None)
         (at, at, conversation_id, tool)).fetchall()
     stated = claimed_cents(claim)
     for r in rows:
-        if not stated or "amount_cents" not in r["args"] or r["args"]["amount_cents"] in stated:
+        if stated is None or "amount_cents" not in r["args"] or r["args"]["amount_cents"] == stated:
             return r
     return None
 

@@ -28,7 +28,8 @@ not model any vendor's core banking system, and nothing here is a compliance cla
   who approves the exact payload.
 - Said-versus-did held live: the runtime reads a write back from the core before the member
   hears "done", and a checker holds any claim of a completed action the core has no record of (for
-  a transfer or loan payment that states a dollar amount, the recorded amount must match).
+  a transfer or loan payment, the recorded amount must match the first dollar amount the claim states,
+  written as "$5,000" or "$50.00"; a claim with no such amount is matched on the kind of action).
 - A 60-case frozen eval set, scored from the core's own rows and the action log, never from
   what the agent said (the disclosure and said-versus-did columns read the agent's words only
   to check them against those rows).
@@ -94,7 +95,7 @@ The two `uvicorn` commands each run in the foreground; use separate terminals.
 - `receipts/checker.py`: said versus did, live and after the fact. The runtime runs it on every reply
   before it is sent and holds a "done" the core has no record of (then hands off); the module also records
   every claim on the receipt. A claim is backed by a recorded action of the same kind; when it states a
-  dollar amount, the action must be for that amount.
+  dollar amount (the first "$" figure), a transfer or loan payment must be for that amount.
 - `receipts/receipt.py`: the per-conversation receipt page (the audit view), from rows only.
 - `evals/cases.json` + `evals/CASES.md`: 60 scripted conversations (8 intents, plus traps:
   injection, wrong member, over limit, ambiguous account, core timeout, core down, must refuse).

@@ -11,6 +11,7 @@ if ! psql -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname = '$CANARY_
   psql -q -v ON_ERROR_STOP=1 -d "$CANARY_DB" -f schema.sql
 fi
 sed "s|__REPO__|$PWD|g" ops/com.ocarlsen.receipts-canary.plist > ~/Library/LaunchAgents/com.ocarlsen.receipts-canary.plist
+launchctl bootout gui/$(id -u)/com.ocarlsen.receipts-canary 2>/dev/null || true   # re-run safe; reloads env
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ocarlsen.receipts-canary.plist
 launchctl kickstart gui/$(id -u)/com.ocarlsen.receipts-canary
 sleep 8
