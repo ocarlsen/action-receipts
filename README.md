@@ -37,17 +37,29 @@ not model any vendor's core banking system, and nothing here is a compliance cla
 
 ## Run it
 
+Prerequisites:
+
+- Python 3.12.
+- A running local PostgreSQL. The commands below use `createdb` and the default
+  `postgresql:///fernhollow`; set `DATABASE_URL` to use another database. Tests default to
+  `postgresql:///fernhollow_test` and also honor `DATABASE_URL`.
+- An Anthropic API key in `ANTHROPIC_API_KEY`, only for the billed commands (`chat`, `evalrun`
+  without `--freeze`).
+- Node and ffmpeg, only for the tour film.
+
     python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
     createdb fernhollow && createdb fernhollow_test
-    .venv/bin/python -m receipts.seed          # reset + seed, prints the core hash
+    .venv/bin/python -m receipts.seed          # DESTRUCTIVE: drops all data, saved eval runs included; reseeds
     .venv/bin/uvicorn receipts.core:app --port 8100
-    .venv/bin/uvicorn receipts.approver:app --host 0.0.0.0 --port 8101   # approval queue
+    .venv/bin/uvicorn receipts.approver:app --host 127.0.0.1 --port 8101   # approval queue; no sign-in, keep it on localhost
     .venv/bin/python -m pytest -q              # uses fernhollow_test; no API calls
-    .venv/bin/python -m receipts.chat --whoami M0001   # live: needs ANTHROPIC_API_KEY, billed
-    .venv/bin/python -m receipts.evalrun [--only id,...] [--judge]   # live eval run, billed (~$0.09/case)
+    .venv/bin/python -m receipts.chat --whoami M0001   # live: needs ANTHROPIC_API_KEY, billed; needs the core running on :8100
+    .venv/bin/python -m receipts.evalrun [--only id,...] [--judge]   # live eval run, billed (~$0.09/case); runs the core in-process
     .venv/bin/python -m receipts.evalrun --freeze      # record the set's hash in evals/FROZEN
     .venv/bin/python -m receipts.evalrun --model claude-sonnet-5 --judge   # same set, another pinned model
     .venv/bin/python -m receipts.benchmark <baseline_run_id> <candidate_run_id>   # comparison page + verdict
+
+The two `uvicorn` commands each run in the foreground; use separate terminals.
 
 ## Layout
 

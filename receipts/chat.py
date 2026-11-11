@@ -8,6 +8,7 @@ Every model call is billed; the receipt's cost ledger shows what this conversati
     python -m receipts.chat --whoami M0001      # print M0001's sign-in details first
 """
 import argparse
+import os
 import time
 
 import httpx
@@ -25,6 +26,8 @@ def main() -> None:
     p.add_argument("--model", default=None)
     p.add_argument("--approver-url", default="http://127.0.0.1:8101/")
     args = p.parse_args()
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise SystemExit("ANTHROPIC_API_KEY is not set; this talks to a live model and needs it.")
 
     with connect() as conn, httpx.Client(base_url=args.core, timeout=30) as core:
         if args.whoami:

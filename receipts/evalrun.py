@@ -14,6 +14,7 @@ import argparse
 import hashlib
 import html
 import json
+import os
 import uuid
 from collections import defaultdict
 from decimal import Decimal
@@ -227,6 +228,8 @@ def main() -> None:
         FROZEN.write_text(f"{sha}  evals/cases.json ({len(cases)} cases)\n")
         print(f"frozen {sha}")
         return
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise SystemExit("ANTHROPIC_API_KEY is not set; this runs the eval set against a live model and needs it.")
     if args.only:
         keep = set(args.only.split(","))
         cases = [c for c in cases if c["id"] in keep]

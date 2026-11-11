@@ -1,9 +1,10 @@
 """The approval queue: a person approves or rejects the exact payload of a gated action.
 
 Single-user demo console, no sign-in. A decision is one row per action (UNIQUE), so
-approving twice records nothing the second time.
+approving twice records nothing the second time. There is no authentication, so keep it on
+localhost.
 
-    uvicorn receipts.approver:app --host 0.0.0.0 --port 8101
+    uvicorn receipts.approver:app --host 127.0.0.1 --port 8101
 """
 import html
 import json
