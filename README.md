@@ -5,6 +5,11 @@ A member-service agent for a fictional credit union that completes core-banking 
 each write is policy-gated, idempotent and audited. The idea is to score the agent on what
 changed in the system of record, not on what it said.
 
+[![The tour: the overview, the dashboard with both canary faults caught, the eval report, the model benchmark and one conversation's receipt](docs/media/receipts-tour.gif)](docs/media/receipts-tour.mp4)
+
+The whole walkthrough, 1:44 with captions and no sound:
+[docs/media/receipts-tour.mp4](docs/media/receipts-tour.mp4). Recorded by `tour/tour.ts` from the static export.
+
 ## Provenance
 
 Written from scratch by Owen Carlsen, with Claude Code.
