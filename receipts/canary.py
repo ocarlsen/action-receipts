@@ -26,7 +26,7 @@ from receipts.runtime import Agent
 from receipts.scorer import score
 from receipts.seed import reset_core
 
-LOCK = 4242   # pg advisory lock shared with evalrun: both reset the core
+LOCK = 4242   # pg advisory lock shared with evalrun; it coordinates only when both use the same database
 ALERT_LOG = Path("out/canary/alerts.log")
 USAGE = NS(input_tokens=0, output_tokens=0, cache_read_input_tokens=0, cache_creation_input_tokens=0)
 CHECKED = ["completed", "no_unauth_write", "disclosure", "said_did"]

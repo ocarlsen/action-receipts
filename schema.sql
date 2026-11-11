@@ -6,7 +6,8 @@ DROP SCHEMA IF EXISTS app CASCADE;
 CREATE SCHEMA core;
 CREATE SCHEMA app;
 
--- Append-only guard: audit tables reject UPDATE and DELETE.
+-- Append-only guard: audit tables reject UPDATE and DELETE. TRUNCATE is not blocked: the eval runner
+-- and the canary reset the fake core (core.*) with it, and app.* is left alone by those resets.
 CREATE FUNCTION app.forbid_change() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   RAISE EXCEPTION '% on %.% is not allowed: append-only table',

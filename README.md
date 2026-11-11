@@ -21,12 +21,15 @@ not model any vendor's core banking system, and nothing here is a compliance cla
 ## What it shows
 
 - An idempotent fake core with append-only audit tables: a write needs an idempotency key, a
-  replay returns the stored response, and nothing can be edited or deleted after the fact.
+  replay returns the stored response, and UPDATE and DELETE on those tables are rejected by
+  triggers. (TRUNCATE is not blocked: the eval runner and the canary reset the fake core with it.)
 - A policy engine that defaults to deny: every tool call is classed read, low or gated by a
   rule, and loan payments and transfers over $250, and every address change, wait for a person
   who approves the exact payload.
 - Said-versus-did held live: the runtime reads a write back from the core before the member
-  hears "done", and a checker holds any claim the core cannot back.
+  hears "done", and a checker holds any claim of a completed action the core has no record of (for
+  a transfer or loan payment, the recorded amount must match the first dollar amount the claim states,
+  written as "$5,000" or "$50.00"; a claim with no such amount is matched on the kind of action).
 - A 60-case frozen eval set, scored from the core's own rows and the action log, never from
   what the agent said (the disclosure and said-versus-did columns read the agent's words only
   to check them against those rows).
@@ -47,7 +50,8 @@ Prerequisites:
 - Python 3.12.
 - A running local PostgreSQL. The commands below use `createdb` and the default
   `postgresql:///fernhollow`; set `DATABASE_URL` to use another database. Tests default to
-  `postgresql:///fernhollow_test` and also honor `DATABASE_URL`.
+  `postgresql:///fernhollow_test` and also honor `DATABASE_URL`. The hourly canary uses its
+  own database, `fernhollow_canary` (see `receipts/canary.py` below).
 - An Anthropic API key in `ANTHROPIC_API_KEY`, only for the billed commands (`chat`, `evalrun`
   without `--freeze`).
 - Node and ffmpeg, only for the tour film.
@@ -69,8 +73,8 @@ The two `uvicorn` commands each run in the foreground; use separate terminals.
 ## Layout
 
 - `schema.sql`: `core.*` is the fake core (system of record); `app.*` is the agent side
-  (conversations, actions, approvals, cost ledger, eval runs). Audit tables are append-only,
-  enforced by triggers.
+  (conversations, actions, approvals, cost ledger, eval runs). Audit tables reject
+  UPDATE and DELETE (triggers); `core.*` is reset by TRUNCATE between eval cases and canary ticks.
 - `receipts/seed.py`: deterministic generator; same seed, same hash. Edge cases: one member
   with two memberships, a joint membership, a card that is already frozen.
 - `receipts/core.py`: nine operations (five reads, four writes), including a read-back
@@ -90,7 +94,8 @@ The two `uvicorn` commands each run in the foreground; use separate terminals.
   written by code, while the action waits.
 - `receipts/checker.py`: said versus did, live and after the fact. The runtime runs it on every reply
   before it is sent and holds a "done" the core has no record of (then hands off); the module also records
-  every claim on the receipt.
+  every claim on the receipt. A claim is backed by a recorded action of the same kind; when it states a
+  dollar amount (the first "$" figure), a transfer or loan payment must be for that amount.
 - `receipts/receipt.py`: the per-conversation receipt page (the audit view), from rows only.
 - `evals/cases.json` + `evals/CASES.md`: 60 scripted conversations (8 intents, plus traps:
   injection, wrong member, over limit, ambiguous account, core timeout, core down, must refuse).
@@ -111,7 +116,11 @@ The two `uvicorn` commands each run in the foreground; use separate terminals.
   and checker ($0). Silent when clean, one alert on the first red tick. Proven red with
   `RECEIPTS_CORE_BREAK=drop_write` (the core answers 200 and writes nothing) and
   `RECEIPTS_MODEL_BREAK=false_done` (the model claims the transfer without ever asking for
-  it). Hourly via `ops/install_canary.sh` (launchd).
+  it). Hourly via `ops/install_canary.sh` (launchd). Each tick resets the fake core, so the job runs
+  against its own database (`fernhollow_canary`, created by the install script) and never touches
+  the one chat uses. The dashboard export reads the ticks from there: build the site with
+  `CANARY_DATABASE_URL=postgresql:///fernhollow_canary` (unset, it reads the default database), and
+  run the manual fault injections with `DATABASE_URL=postgresql:///fernhollow_canary` too.
 - `receipts/site.py`: static export to out/site (overview, dashboard, eval report with receipts,
   benchmark), noindex everywhere, and a leak scan that fails the build on local paths, keys,
   connection strings or private addresses. The built-in pattern list can be extended with an

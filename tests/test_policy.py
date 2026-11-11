@@ -199,3 +199,35 @@ def test_approver_console(conn, m0001):
     b.send("pay my loan")
     assert pending == [True]
     assert events(conn, b, "pay_loan") == ["requested", "approved", "executed"]
+
+
+def _decide_over_http(action_id, decision="approve"):
+    from receipts import approver
+    return TestClient(approver.app).post(f"/actions/{action_id}/decide", follow_redirects=False,
+                                         data={"decision": decision, "approver": "late"})
+
+
+def _gated_action_id(conn, a):
+    return conn.execute("SELECT action_id FROM app.action WHERE conversation_id = %s AND tool = 'pay_loan'",
+                        (a.conversation_id,)).fetchone()["action_id"]
+
+
+def test_approval_after_expiry_is_refused(conn, m0001):
+    m = m0001
+    a = agent(conn, [verify(m), pay(m, m["due"]), text("Nothing was paid.")], wait=lambda conn, action_id: None)
+    a.send("pay my loan")
+    aid = _gated_action_id(conn, a)
+    assert _decide_over_http(aid).status_code == 409
+    assert conn.execute("SELECT count(*) FROM app.approval WHERE action_id = %s", (aid,)).fetchone()["count"] == 0
+
+
+def test_approval_after_a_refusal_is_refused(conn, m0001):
+    m = m0001
+
+    def tampered(conn, action_id):
+        return {**deciding("approve")(conn, action_id), "payload_sha256": "0" * 64}
+    a = agent(conn, [verify(m), pay(m, m["due"]), text("Nothing was paid.")], wait=tampered)
+    a.send("pay my loan")
+    aid = _gated_action_id(conn, a)
+    assert events(conn, a, "pay_loan")[-1] == "refused"
+    assert _decide_over_http(aid, "reject").status_code == 409

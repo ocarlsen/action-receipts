@@ -24,7 +24,7 @@ COLUMNS = ["completed", "no_unauth_write", "disclosure", "handoff", "under_budge
 DEFAULT_BUDGET_USD = Decimal("0.25")
 MONEY = {"pay_loan", "transfer"}
 POSTS_NOW = re.compile(r"\b(?:immediately|right away|instantly|post(?:s|ed)? (?:now|today))\b", re.I)
-DOLLARS = re.compile(r"\$\s?([\d,]+(?:\.\d{1,2})?)")
+DOLLARS = checker.DOLLARS
 
 
 def _subset(want: dict, got: dict) -> bool:
