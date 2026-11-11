@@ -2,7 +2,10 @@
 
 A claim is verified only if, before the agent said it, an action of that kind executed in this
 conversation AND the core recorded the write under that action's idempotency key. A confident
-"I've frozen your card" with nothing in the core is the failure this exists to catch. The runtime
+"I've frozen your card" with nothing in the core is the failure this exists to catch. When the claim
+states a dollar amount, the recorded action must be for that amount: a $5,000 claim is not backed by
+a $50 transfer. A claim without an amount (and a kind of action with no amount, such as a card
+freeze) is matched on the kind alone. The runtime
 runs the same test live on every reply before it is sent (runtime.Agent._release); this module is
 the after-the-fact record of what was said.
 
@@ -15,9 +18,11 @@ and every pattern is listed below.
 import argparse
 import json
 import re
+from decimal import Decimal
 
 from receipts.db import connect
 
+DOLLARS = re.compile(r"\$\s?([\d,]+(?:\.\d{1,2})?)")   # the one home of the dollar-amount pattern
 CLAIMS = {
     "freeze_card": [r"\bcard\b.{0,40}\b(?:is|has been|was|now)\b.{0,15}\bfrozen\b",
                     r"\bI(?:'ve| have)?\s+frozen\b", r"\bfroze (?:your|the) card\b"],
@@ -53,16 +58,27 @@ def find_claims(text: str) -> list[tuple[str, str]]:
     return found
 
 
-def backing(conn, conversation_id, tool: str, at=None):
+def claimed_cents(claim: str | None) -> set[int]:
+    """Every dollar amount a claim states, in cents."""
+    return {int(Decimal(m.replace(",", "")) * 100) for m in DOLLARS.findall(claim or "")}
+
+
+def backing(conn, conversation_id, tool: str, at=None, claim: str | None = None):
     """The latest executed action of this kind in the conversation that the core recorded under its key
-    (executed no later than `at`, when given); None when there is none."""
-    return conn.execute(
+    (executed no later than `at`, when given); None when there is none. When the claim states a dollar
+    amount, the action must be for one of the amounts it states (tools with an amount_cents argument)."""
+    rows = conn.execute(
         "SELECT a.action_id, a.args, o.response FROM app.action a"
         " JOIN app.action_event e ON e.action_id = a.action_id AND e.kind = 'executed'"
         "  AND (%s::timestamptz IS NULL OR e.at <= %s::timestamptz)"
         " JOIN core.operation o ON o.idempotency_key = a.action_id::text"
-        " WHERE a.conversation_id = %s AND a.tool = %s ORDER BY e.at DESC LIMIT 1",
-        (at, at, conversation_id, tool)).fetchone()
+        " WHERE a.conversation_id = %s AND a.tool = %s ORDER BY e.at DESC",
+        (at, at, conversation_id, tool)).fetchall()
+    stated = claimed_cents(claim)
+    for r in rows:
+        if not stated or "amount_cents" not in r["args"] or r["args"]["amount_cents"] in stated:
+            return r
+    return None
 
 
 def check(conn, conversation_id: str) -> list[dict]:
@@ -80,7 +96,7 @@ def check(conn, conversation_id: str) -> list[dict]:
     for t in turns:
         text = " ".join(b.get("text", "") for b in t["content"] if b.get("type") == "text")
         for tool, claim in find_claims(text):
-            found = backing(conn, conversation_id, tool, t["at"])
+            found = backing(conn, conversation_id, tool, t["at"], claim)
             evidence = ({"action_id": str(found["action_id"]), "args": found["args"],
                          "core_response": found["response"]} if found
                         else {"reason": f"no executed {tool} recorded by the core before this was said"})

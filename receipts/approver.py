@@ -25,8 +25,13 @@ SELECT a.action_id, a.conversation_id, a.tool, a.args, a.policy_rule_id, a.creat
  ORDER BY a.created_at"""
 
 
+class Closed(Exception):
+    """The request already expired or was refused; a late decision is not recorded."""
+
+
 def decide(conn, action_id: str, decision: str, approver: str, reason: str | None = None) -> bool:
-    """Record a decision. Returns False if the action was already decided (nothing written)."""
+    """Record a decision. Returns False if the action was already decided (nothing written).
+    Raises Closed when the request already expired or was refused."""
     if decision not in ("approve", "reject"):
         raise ValueError(decision)
     with conn.transaction():
@@ -34,6 +39,9 @@ def decide(conn, action_id: str, decision: str, approver: str, reason: str | Non
                               (action_id,)).fetchone()
         if action is None or action["policy_class"] != "gated":
             raise LookupError(f"no gated action {action_id}")
+        if conn.execute("SELECT 1 FROM app.action_event WHERE action_id = %s AND kind IN ('expired', 'refused')",
+                        (action_id,)).fetchone():
+            raise Closed(f"action {action_id} already expired or was refused; nothing was recorded")
         row = conn.execute(
             "INSERT INTO app.approval (action_id, decision, approver, payload_sha256, reason)"
             " VALUES (%s, %s, %s, %s, %s) ON CONFLICT (action_id) DO NOTHING RETURNING approval_id",
@@ -93,4 +101,6 @@ def decide_form(action_id: str, decision: str = Form(...), approver: str = Form(
             decide(conn, action_id, decision, approver.strip() or "unknown", reason.strip() or None)
         except (LookupError, ValueError) as err:
             raise HTTPException(404, str(err))
+        except Closed as err:
+            raise HTTPException(409, str(err))
     return RedirectResponse("/", status_code=303)

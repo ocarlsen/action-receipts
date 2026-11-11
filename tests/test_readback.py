@@ -1,6 +1,8 @@
 """The read-back. A write the core answers but does not record never reaches the member as done."""
 import os
 
+import httpx
+
 os.environ.setdefault("DATABASE_URL", "postgresql:///fernhollow_test")
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -85,3 +87,64 @@ def test_held_claim_is_recorded_as_held_not_as_said(conn):
     a.send("Freeze my card. Membership 100005, phone 9264.")
     [c] = checker.check(conn, str(a.conversation_id))
     assert not c["verified"] and c["evidence"]["held_before_sending"] is True
+
+
+# The read-back itself failing is not the same as the core having no record.
+class FlakyReadBack:
+    """Wraps the test client; the first `fail_times` GETs of /operations/... answer 503 (None = always)."""
+    def __init__(self, inner, fail_times=None):
+        self.inner, self.fail_times, self.gets = inner, fail_times, 0
+
+    def request(self, method, path, **kw):
+        if method == "GET" and path.startswith("/operations/"):
+            self.gets += 1
+            if self.fail_times is None or self.gets <= self.fail_times:
+                return httpx.Response(503, json={"detail": "unavailable"})
+        return self.inner.request(method, path, **kw)
+
+
+def test_unreachable_read_back_does_not_claim_the_write_failed(conn, monkeypatch):
+    monkeypatch.setattr("receipts.runtime.READ_BACK_PAUSE_S", 0, raising=False)
+    model = Scripted([VERIFY, FREEZE, text("Your card is now frozen.")])
+    core = FlakyReadBack(TestClient(app))
+    a = Agent(conn, core, model)
+    said = a.send("Freeze my card. Membership 100005, phone 9264.")
+    result = conn.execute("SELECT content FROM app.turn WHERE conversation_id = %s AND role = 'tool_results'"
+                          " ORDER BY seq DESC LIMIT 1", (a.conversation_id,)).fetchone()["content"][0]["content"]
+    assert "did not complete" not in result and "nothing was done" not in result
+    assert "may have" in result
+    assert core.gets > 1, "the read-back was retried"
+    assert a.session.handed_off is not None
+    assert said == "I've passed this to a member-service representative with everything we've covered."
+    # the write did commit in the core
+    assert conn.execute("SELECT status FROM core.card WHERE card_id = 'C0005'").fetchone()["status"] == "frozen"
+
+
+def test_transient_read_back_error_is_retried(conn, monkeypatch):
+    monkeypatch.setattr("receipts.runtime.READ_BACK_PAUSE_S", 0, raising=False)
+    core = FlakyReadBack(TestClient(app), fail_times=1)
+    a = Agent(conn, core, Scripted([VERIFY, FREEZE, text("Your card is now frozen.")]))
+    assert a.send("Freeze my card. Membership 100005, phone 9264.") == "Your card is now frozen."
+    assert a.session.handed_off is None
+    assert [k for k, _ in events(conn, a, "freeze_card")] == ["requested", "executed"]
+
+
+# The said-versus-did check compares amounts, not just the kind of action.
+TRANSFER_50 = call(("transfer", {"from_account_id": "A100005-C", "to_account_id": "A100005-S", "amount_cents": 5000}))
+
+
+def test_claim_of_a_different_amount_is_held(conn):
+    a = Agent(conn, TestClient(app), Scripted([VERIFY, TRANSFER_50, text("Done, I've transferred $5,000 to your savings.")]))
+    assert a.send("Move $50 to savings. Membership 100005, phone 9264.") == HANDOFF
+    assert "held a reply claiming an unrecorded transfer" in a.session.handed_off["reason"]
+
+
+def test_claim_of_the_recorded_amount_is_released(conn):
+    a = Agent(conn, TestClient(app), Scripted([VERIFY, TRANSFER_50, text("Done, I've transferred $50.00 to your savings.")]))
+    assert a.send("Move $50 to savings. Membership 100005, phone 9264.").startswith("Done")
+    assert a.session.handed_off is None
+
+
+def test_claim_without_an_amount_matches_on_kind(conn):
+    a = Agent(conn, TestClient(app), Scripted([VERIFY, TRANSFER_50, text("Done, I've transferred it to your savings.")]))
+    assert a.send("Move $50 to savings. Membership 100005, phone 9264.").startswith("Done")

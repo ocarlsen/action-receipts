@@ -175,3 +175,11 @@ def test_second_decision_on_same_action_refused():
         with pytest.raises(psycopg.errors.UniqueViolation):
             conn.execute("INSERT INTO app.approval (action_id, decision, approver, payload_sha256)"
                          " VALUES (%s, 'approve', 'owen', 'x')", (act,))
+
+
+def test_transactions_limit_must_be_positive():
+    c = TestClient(app)
+    assert c.get("/accounts/A100005-C/transactions?limit=0").status_code == 422
+    assert c.get("/accounts/A100005-C/transactions?limit=-3").status_code == 422
+    assert c.get("/accounts/A100005-C/transactions?limit=51").status_code == 422
+    assert c.get("/accounts/A100005-C/transactions?limit=1").status_code == 200

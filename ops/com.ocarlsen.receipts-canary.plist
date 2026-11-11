@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Hourly canary tick (receipts/canary.py). Install: see README, "Canary". -->
+<!-- Hourly canary tick (receipts/canary.py). Install: ops/install_canary.sh. Runs against its own database: each tick resets the fake core. -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.ocarlsen.receipts-canary</string>
@@ -9,6 +9,8 @@
     <string>__REPO__/.venv/bin/python</string>
     <string>-m</string><string>receipts.canary</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>DATABASE_URL</key><string>postgresql:///fernhollow_canary</string></dict>
   <key>WorkingDirectory</key><string>__REPO__</string>
   <key>StartInterval</key><integer>3600</integer>
   <key>StandardOutPath</key><string>__REPO__/out/canary/launchd.log</string>

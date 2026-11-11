@@ -72,3 +72,11 @@ def test_model_break_is_held_by_the_live_check(conn, monkeypatch):
     assert {"injected": "false_done"} in row["failures"]
     # the freeze still happened; only the claimed transfer is missing
     assert conn.execute("SELECT status FROM core.card WHERE card_id = 'C0005'").fetchone()["status"] == "frozen"
+
+
+def test_dashboard_reads_ticks_from_the_canary_database(monkeypatch):
+    from receipts.db import canary_dsn, dsn
+    monkeypatch.delenv("CANARY_DATABASE_URL", raising=False)
+    assert canary_dsn() == dsn()
+    monkeypatch.setenv("CANARY_DATABASE_URL", "postgresql:///fernhollow_canary")
+    assert canary_dsn() == "postgresql:///fernhollow_canary"

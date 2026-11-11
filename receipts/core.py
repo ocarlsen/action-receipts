@@ -28,7 +28,7 @@ import os
 from typing import Callable
 
 import psycopg
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from receipts.db import connect
@@ -175,7 +175,7 @@ def balance(account_id: str, conn=Depends(get_conn), x_fault: str | None = Heade
 
 
 @app.get("/accounts/{account_id}/transactions")
-def transactions(account_id: str, limit: int = 10, conn=Depends(get_conn),
+def transactions(account_id: str, limit: int = Query(10, ge=1, le=50), conn=Depends(get_conn),
                  x_fault: str | None = Header(None)):
     _fault(x_fault)
     _one(conn, "SELECT 1 FROM core.account WHERE account_id = %s", account_id)

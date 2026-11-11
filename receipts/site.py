@@ -15,7 +15,7 @@ from pathlib import Path
 from receipts import receipt
 from receipts.benchmark import load_run, verdict
 from receipts.costs import rollup
-from receipts.db import connect
+from receipts.db import canary_dsn, connect
 from receipts.evalrun import frozen_sha
 
 OUT = Path("out/site")
@@ -226,7 +226,8 @@ def build(conn, eval_run: str, base: str, cand: str, showcase: str, domain: str 
     (tmp / "index.html").write_text(page("Every action has a receipt", index_body(ev, verdict(b, c)[1], secs), show))
     from receipts.canary import code_version
     version = (code_version() or "").removesuffix("-dirty")   # ticks on uncommitted code never count
-    (tmp / "dashboard.html").write_text(page("Dashboard", dashboard_body(conn, ev, version), show))
+    with connect(canary_dsn()) as canary_conn:   # the canary keeps its own database
+        (tmp / "dashboard.html").write_text(page("Dashboard", dashboard_body(canary_conn, ev, version), show))
     for f in tmp.rglob("*.html"):   # copied pages get the noindex tag, the top nav and the link colour too
         t = f.read_text()
         if NOINDEX not in t:

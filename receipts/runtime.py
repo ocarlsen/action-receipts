@@ -25,6 +25,8 @@ MODEL = "claude-opus-5"
 MAX_STEPS = 12   # model calls per member turn before the runtime hands off
 BUDGET_USD = Decimal("0.20")   # per conversation; at or past it, the runtime hands off before the next call
 APPROVAL_TIMEOUT_S = 300
+READ_BACK_ATTEMPTS = 3   # tries at the read-back when the core answers it with an error
+READ_BACK_PAUSE_S = 0.3
 HOLDING_MESSAGE = "One moment while I confirm this with a colleague."
 
 # USD per million tokens. Cache writes are 1.25x input, cache reads 0.1x (5-minute cache).
@@ -56,7 +58,7 @@ class Model(Protocol):
     def create(self, *, system: list, tools: list, messages: list) -> object: ...
 
 
-# Models that take the server-side refusal fallback (documented for Opus 5 and Fable 5.1 only).
+# Models that take the server-side refusal fallback: the models this project uses that support it.
 FALLBACK_MODELS = {"claude-opus-5", "claude-fable-5-1"}
 
 
@@ -195,7 +197,7 @@ class Agent:
         """The live said-versus-did check: a reply that claims a completed action the core has no record of
         is held, never shown to the member, and the conversation goes to a person."""
         unbacked = [(tool, claim) for tool, claim in find_claims(reply)
-                    if backing(self.conn, self.conversation_id, tool) is None]
+                    if backing(self.conn, self.conversation_id, tool, claim=claim) is None]
         if not unbacked:
             return reply
         tool, claim = unbacked[0]
@@ -252,6 +254,14 @@ class Agent:
             self._event(action_id, "failed", {"status": e.status, "detail": e.detail})
             return {"type": "tool_result", "tool_use_id": call["id"], "is_error": True,
                     "content": f"The core did not complete this: {e.detail}"}
+        except Unconfirmed as e:
+            self._event(action_id, "failed", {"read_back_unavailable": str(e), "core_answered": e.answer})
+            self.session.handed_off = self._packet(f"could not confirm {name} with the core: {e}",
+                                                   "The core accepted a write but the confirmation check did not answer; it may have completed. See the actions below.")
+            self._record("runtime", f"Handed off by the runtime: could not read back {name}; it may have completed")
+            return {"type": "tool_result", "tool_use_id": call["id"], "is_error": True,
+                    "content": "The core accepted this, but its record could not be checked just now, so it may have "
+                               "completed. Do not say it was done or not done. A colleague is confirming."}
         except Unrecorded as e:
             self._event(action_id, "failed", {"read_back": str(e), "core_answered": e.answer})
             self.session.handed_off = self._packet(f"read-back failed for {name}: {e}",
@@ -322,13 +332,18 @@ class Agent:
         raise Refused(f"unknown tool {name}")
 
     def _read_back(self, name: str, key: str, answer: dict) -> None:
-        """Ask the core what it recorded under this write's key. Raises Unrecorded when nothing is there."""
-        try:
-            op = self._core("GET", f"/operations/{key}")
-        except CoreError as e:
-            if e.status == 404:
-                raise Unrecorded("the core has no write under this key", answer) from None
-            raise
+        """Ask the core what it recorded under this write's key. Raises Unrecorded when nothing is there, and
+        Unconfirmed when the core cannot answer the lookup (the write may still have committed)."""
+        for attempt in range(READ_BACK_ATTEMPTS):
+            try:
+                op = self._core("GET", f"/operations/{key}")
+                break
+            except CoreError as e:
+                if e.status == 404:
+                    raise Unrecorded("the core has no write under this key", answer) from None
+                if attempt == READ_BACK_ATTEMPTS - 1:
+                    raise Unconfirmed(f"the read-back answered {e.status}", answer) from None
+                time.sleep(READ_BACK_PAUSE_S)
         if op["operation"] != name:
             raise Unrecorded(f"the key holds a {op['operation']}, not a {name}", answer)
 
@@ -353,6 +368,13 @@ class Agent:
 
 class Unrecorded(Exception):
     """The core answered a write but its own record has no such write (found by the read-back)."""
+    def __init__(self, reason: str, answer: dict):
+        super().__init__(reason)
+        self.answer = answer
+
+
+class Unconfirmed(Exception):
+    """The core answered a write but the read-back could not be completed: the write may have committed."""
     def __init__(self, reason: str, answer: dict):
         super().__init__(reason)
         self.answer = answer
